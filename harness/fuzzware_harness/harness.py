@@ -357,6 +357,20 @@ def populate_parser(parser):
     parser.add_argument('--dumped-mmio-contexts', default='', help="Restrict the (pc, mmio_address) contexts for which to dump states for. Format: pc1:mmio1,pc2:mmio2,...,pcX:mmioX")
     parser.add_argument('--dumped-mmio-name-prefix', default='', help="Add a prefix to each generated MMIO state name for distinguishability")
 
+def add_memory_hooks(uc):
+    from unicorn import UC_HOOK_MEM_READ, UC_HOOK_MEM_WRITE
+    def hook_mem_read(uc, access, address, size, value, user_data):
+        pc = uc.reg_read(UC_ARM_REG_PC)
+        uc.memory_accesses.add((pc, address))
+
+    def hook_mem_write(uc, access, address, size, value, user_data):
+        pc = uc.reg_read(UC_ARM_REG_PC)
+        uc.memory_accesses.add((pc, address))
+
+    # Add your memory hooks after initializing the uc instance and mapping memory
+    uc.hook_add(UC_HOOK_MEM_READ, hook_mem_read)
+    uc.hook_add(UC_HOOK_MEM_WRITE, hook_mem_write)
+
 def main():
     parser = argparse.ArgumentParser(description="Fuzzware emulation harness")
     populate_parser(parser)
@@ -389,9 +403,15 @@ def main():
     gc.collect()
     # gc.set_threshold(0, 0, 0)
 
+    add_memory_hooks(uc)
+
     # We do everything in native code from here to avoid any python overhead after configuration is done
     native.emulate(uc, args.input_file, args.prefix_input_path)
+    with open("memory_accesses.txt", "w") as f:
+        f.write("\n".join([f"{hex(x[0])} {hex(x[1])}" for x in uc.memory_accesses]))
+        f.write("\n")
 
 
 if __name__ == "__main__":
     main()
+
